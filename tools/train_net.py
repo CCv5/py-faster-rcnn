@@ -77,6 +77,12 @@ def combined_roidb(imdb_names):
     return imdb, roidb
 
 if __name__ == '__main__':
+
+
+    import sys
+    from IPython.core import ultratb
+    sys.excepthook = ultratb.FormattedTB(call_pdb=True)
+
     args = parse_args()
 
     print('Called with args:')

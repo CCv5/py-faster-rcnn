@@ -55,6 +55,7 @@ def add_bbox_regression_targets(roidb):
         rois = roidb[im_i]['boxes']
         max_overlaps = roidb[im_i]['max_overlaps']
         max_classes = roidb[im_i]['max_classes']
+
         roidb[im_i]['bbox_targets'] = \
                 _compute_targets(rois, max_overlaps, max_classes)
 
@@ -108,6 +109,9 @@ def add_bbox_regression_targets(roidb):
 
 def _compute_targets(rois, overlaps, labels):
     """Compute bounding-box regression targets for an image."""
+    #if len(rois) is 0:
+    #    targets = np.zeros((rois.shape[0],5),dtype=np.float32)
+    #    return targets
     # Indices of ground-truth ROIs
     gt_inds = np.where(overlaps == 1)[0]
     # Indices of examples for which we try to make predictions
