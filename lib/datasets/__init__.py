@@ -9,8 +9,7 @@ import os.path as osp
 ROOT_DIR = osp.join(osp.dirname(__file__), '..', '..')
 
 from .imdb import imdb
-from .pascal_voc import pascal_voc
-from .coco import coco
+from .ms_coco import ms_coco
 from . import factory
 
 
