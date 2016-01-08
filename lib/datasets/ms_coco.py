@@ -257,6 +257,7 @@ class ms_coco(datasets.imdb):
             y2 = y1 + math.ceil(obj['bbox'][3]) - 1
             cls = self._class_to_ind[self._COCO.loadCats(obj['category_id'])[0]['name']]
             boxes[ix, :] = [x1, y1, x2, y2]
+            assert (boxes[ix,:]>=0).all()
             gt_classes[ix] = cls
             overlaps[ix, cls] = 1.0
 
