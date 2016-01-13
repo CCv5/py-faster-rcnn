@@ -16,6 +16,17 @@ import scipy.io as sio
 import utils.cython_bbox
 import cPickle
 import subprocess
+import json
+
+import sys
+_API_PATH = osp.join(datasets.ROOT_DIR, 'data', 'coco')
+sys.path.append(os.path.join(_API_PATH, 'PythonAPI'))
+try:
+    from pycocotools.coco import COCO
+    from pycocotools.cocoeval import COCOeval
+    from pycocotools import mask as COCOmask
+except:
+    raise Exception("can't find coco API in the coco path: %s" % _API_PATH)
 
 class ms_coco(datasets.imdb):
     def __init__(self, image_set, year = 2014, coco_path=None):
@@ -30,6 +41,8 @@ class ms_coco(datasets.imdb):
         cats = self._COCO.loadCats(self._COCO.getCatIds())
         self._classes = tuple(['__background__'] + [cat['name'] for cat in cats])
         self._class_to_ind = dict(zip(self.classes, xrange(self.num_classes)))
+        self._class_to_coco_cat_id = dict(zip([c['name'] for c in cats],
+                                              self._COCO.getCatIds()))
         self._image_index = self._load_image_set_index()
         self._validate_image_index()
         # Default to roidb handler
@@ -81,13 +94,6 @@ class ms_coco(datasets.imdb):
         return image_index
 
     def _load_coco_json(self):
-        import sys
-        sys.path.append(os.path.join(self._coco_path, 'PythonAPI'))
-        try:
-            from pycocotools.coco import COCO
-        except:
-            raise Exception("can't find coco API in the coco path: %s" % self._coco_path)
-
         ann_file = os.path.join(self._coco_path, 'annotations', 'instances_' + self._coco_name + '.json')
         return COCO(ann_file)
 
@@ -257,7 +263,6 @@ class ms_coco(datasets.imdb):
             y2 = y1 + math.ceil(obj['bbox'][3]) - 1
             cls = self._class_to_ind[self._COCO.loadCats(obj['category_id'])[0]['name']]
             boxes[ix, :] = [x1, y1, x2, y2]
-            assert (boxes[ix,:]>=0).all()
             gt_classes[ix] = cls
             overlaps[ix, cls] = 1.0
 
@@ -295,6 +300,81 @@ class ms_coco(datasets.imdb):
                                        dets[k, 2] + 1, dets[k, 3] + 1))
         return comp_id
 
+    def _print_eval_metrics(self, coco_eval):
+        IoU_lo_thresh = 0.5
+        IoU_hi_thresh = 0.95
+        def _get_thr_ind(coco_eval, thr):
+            ind = np.where((coco_eval.params.iouThrs > thr - 1e-5) &
+                           (coco_eval.params.iouThrs < thr + 1e-5))[0][0]
+            iou_thr = coco_eval.params.iouThrs[ind]
+            assert np.isclose(iou_thr, thr)
+            return ind
+
+        ind_lo = _get_thr_ind(coco_eval, IoU_lo_thresh)
+        ind_hi = _get_thr_ind(coco_eval, IoU_hi_thresh)
+        # precision has dims (iou, recall, cls, area range, max dets)
+        # area range index 0: all area ranges
+        # max dets index 2: 100 per image
+        precision = \
+            coco_eval.eval['precision'][ind_lo:(ind_hi + 1), :, :, 0, 2]
+        ap_default = np.mean(precision[precision > -1])
+        print ('~~~~ Mean and per-category AP @ IoU=[{:.2f},{:.2f}] '
+               '~~~~').format(IoU_lo_thresh, IoU_hi_thresh)
+        print '{:.1f}'.format(100 * ap_default)
+        for cls_ind, cls in enumerate(self.classes):
+            if cls == '__background__':
+                continue
+            # minus 1 because of __background__
+            precision = coco_eval.eval['precision'][ind_lo:(ind_hi + 1), :, cls_ind - 1, 0, 2]
+            ap = np.mean(precision[precision > -1])
+            print '{:.1f}'.format(100 * ap)
+
+        print '~~~~ Summary metrics ~~~~'
+        coco_eval.summarize()
+
+    def _do_eval(self, res_file, output_dir):
+        ann_type = 'bbox'
+        coco_dt = self._COCO.loadRes(res_file)
+        coco_eval = COCOeval(self._COCO, coco_dt)
+        coco_eval.params.useSegm = (ann_type == 'segm')
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        self._print_eval_metrics(coco_eval)
+        eval_file = osp.join(output_dir, 'results.pkl')
+        with open(eval_file, 'wb') as fid:
+            cPickle.dump(coco_eval, fid, cPickle.HIGHEST_PROTOCOL)
+        print 'Wrote COCO eval results to: {}'.format(eval_file)
+
+     def _write_coco_results_file(self, all_boxes, res_file):
+            # [{"image_id": 42,
+            #   "category_id": 18,
+            #   "bbox": [258.15,41.29,348.26,243.78],
+            #   "score": 0.236}, ...]
+            results = []
+            for cls_ind, cls in enumerate(self.classes):
+                if cls == '__background__':
+                    continue
+                print 'Collecting {} results ({:d}/{:d})'.format(cls, cls_ind,
+                                                              self.num_classes - 1)
+                coco_cat_id = self._class_to_coco_cat_id[cls]
+                for im_ind, index in enumerate(self.image_index):
+                    dets = all_boxes[cls_ind][im_ind].astype(np.float)
+                    if dets == []:
+                        continue
+                    scores = dets[:, -1]
+                    xs = dets[:, 0]
+                    ys = dets[:, 1]
+                    ws = dets[:, 2] - xs + 1
+                    hs = dets[:, 3] - ys + 1
+                    results.extend(
+                      [{'image_id' : index,
+                        'category_id' : coco_cat_id,
+                        'bbox' : [xs[k], ys[k], ws[k], hs[k]],
+                        'score' : scores[k]} for k in xrange(dets.shape[0])])
+            print 'Writing results json to {}'.format(res_file)
+            with open(res_file, 'w') as fid:
+                json.dump(results, fid)
+
     def _do_matlab_eval(self, comp_id, output_dir='output'):
         rm_results = self.config['cleanup']
 
@@ -310,9 +390,22 @@ class ms_coco(datasets.imdb):
         status = subprocess.call(cmd, shell=True)
 
     def evaluate_detections(self, all_boxes, output_dir):
-        raise Exception("not implemented")
-        comp_id = self._write_voc_results_file(all_boxes)
-        self._do_matlab_eval(comp_id, output_dir)
+        #raise Exception("not implemented")
+        res_file = osp.join(output_dir, ('detections_' +
+                                         self._image_set +
+                                         self._year +
+                                         '_faster_rcnn_results'))
+        if self.config['use_salt']:
+            res_file += '_{}'.format(os.getpid())
+        res_file += '.json'
+        self._write_coco_results_file(all_boxes, res_file)
+        # Only do evaluation on non-test sets
+        if self._image_set.find('test') == -1:
+            self._do_eval(res_file, output_dir)
+        # Optionally cleanup results json file
+        if self.config['cleanup']:
+            os.remove(res_file)
+
 
     def competition_mode(self, on):
         if on:
