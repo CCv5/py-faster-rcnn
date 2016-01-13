@@ -15,30 +15,15 @@ NET=VGG16
 NET_lc=${NET,,}
 ITERS=600000
 DATASET_TRAIN=coco_2014_train
-DATASET_TEST=coco_2014_minival
-
+DATASET_TEST=coco_2014_val
 array=( $@ )
 len=${#array[@]}
 EXTRA_ARGS=${array[@]:2:$len}
 EXTRA_ARGS_SLUG=${EXTRA_ARGS// /_}
+NET_FINAL=output/faster_rcnn_end2end/coco_train2014/coco_vgg16_faster_rcnn_iter_565000.caffemodel
 
-LOG="experiments/logs/coco_faster_rcnn_${NET}_${EXTRA_ARGS_SLUG}.txt.`date +'%Y-%m-%d_%H-%M-%S'`"
-exec &> >(tee -a "$LOG")
-echo Logging output to "$LOG"
 
-NET_INIT=data/imagenet_models/${NET}.v2.caffemodel
 
-time ./tools/train_net.py --gpu ${GPU_ID} \
-  --solver models/${NET}/faster_rcnn_end2end/coco_solver.prototxt \
-  --weights ${NET_INIT} \
-  --imdb ${DATASET_TRAIN} \
-  --iters ${ITERS} \
-  --cfg experiments/cfgs/faster_rcnn_end2end.yml \
-  ${EXTRA_ARGS}
-
-set +x
-NET_FINAL=`grep -B 1 "done solving" ${LOG} | grep "Wrote snapshot" | awk '{print $4}'`
-set -x
 
 time ./tools/test_net.py --gpu ${GPU_ID} \
   --def models/${NET}/faster_rcnn_end2end/coco_test.prototxt \
