@@ -19,7 +19,7 @@ import subprocess
 import json
 
 import sys
-_API_PATH = osp.join(datasets.ROOT_DIR, 'data', 'coco')
+_API_PATH = os.path.join(datasets.ROOT_DIR, 'data', 'coco')
 sys.path.append(os.path.join(_API_PATH, 'PythonAPI'))
 try:
     from pycocotools.coco import COCO
@@ -340,40 +340,41 @@ class ms_coco(datasets.imdb):
         coco_eval.evaluate()
         coco_eval.accumulate()
         self._print_eval_metrics(coco_eval)
-        eval_file = osp.join(output_dir, 'results.pkl')
+        eval_file = os.path.join(output_dir, 'results.pkl')
         with open(eval_file, 'wb') as fid:
             cPickle.dump(coco_eval, fid, cPickle.HIGHEST_PROTOCOL)
         print 'Wrote COCO eval results to: {}'.format(eval_file)
 
-     def _write_coco_results_file(self, all_boxes, res_file):
-            # [{"image_id": 42,
-            #   "category_id": 18,
-            #   "bbox": [258.15,41.29,348.26,243.78],
-            #   "score": 0.236}, ...]
-            results = []
-            for cls_ind, cls in enumerate(self.classes):
-                if cls == '__background__':
+    def _write_coco_results_file(self, all_boxes, res_file):
+        # [{"image_id": 42,
+        #   "category_id": 18,
+        #   "bbox": [258.15,41.29,348.26,243.78],
+        #   "score": 0.236}, ...]
+        results = []
+        for cls_ind, cls in enumerate(self.classes):
+            if cls == '__background__':
+                continue
+            print 'Collecting {} results ({:d}/{:d})'.format(cls, cls_ind,
+                                                          self.num_classes - 1)
+            coco_cat_id = self._class_to_coco_cat_id[cls]
+            for im_ind, index in enumerate(self.image_index):
+                dets = all_boxes[cls_ind][im_ind]
+                if dets == []:
                     continue
-                print 'Collecting {} results ({:d}/{:d})'.format(cls, cls_ind,
-                                                              self.num_classes - 1)
-                coco_cat_id = self._class_to_coco_cat_id[cls]
-                for im_ind, index in enumerate(self.image_index):
-                    dets = all_boxes[cls_ind][im_ind].astype(np.float)
-                    if dets == []:
-                        continue
-                    scores = dets[:, -1]
-                    xs = dets[:, 0]
-                    ys = dets[:, 1]
-                    ws = dets[:, 2] - xs + 1
-                    hs = dets[:, 3] - ys + 1
-                    results.extend(
-                      [{'image_id' : index,
-                        'category_id' : coco_cat_id,
-                        'bbox' : [xs[k], ys[k], ws[k], hs[k]],
-                        'score' : scores[k]} for k in xrange(dets.shape[0])])
-            print 'Writing results json to {}'.format(res_file)
-            with open(res_file, 'w') as fid:
-                json.dump(results, fid)
+                dets = dets.astype(np.float)
+                scores = dets[:, -1]
+                xs = dets[:, 0]
+                ys = dets[:, 1]
+                ws = dets[:, 2] - xs + 1
+                hs = dets[:, 3] - ys + 1
+                results.extend(
+                  [{'image_id' : index,
+                    'category_id' : coco_cat_id,
+                    'bbox' : [xs[k], ys[k], ws[k], hs[k]],
+                    'score' : scores[k]} for k in xrange(dets.shape[0])])
+        print 'Writing results json to {}'.format(res_file)
+        with open(res_file, 'w') as fid:
+            json.dump(results, fid)
 
     def _do_matlab_eval(self, comp_id, output_dir='output'):
         rm_results = self.config['cleanup']
@@ -391,7 +392,7 @@ class ms_coco(datasets.imdb):
 
     def evaluate_detections(self, all_boxes, output_dir):
         #raise Exception("not implemented")
-        res_file = osp.join(output_dir, ('detections_' +
+        res_file = os.path.join(output_dir, ('detections_' +
                                          self._image_set +
                                          self._year +
                                          '_faster_rcnn_results'))
@@ -413,7 +414,7 @@ class ms_coco(datasets.imdb):
             self.config['cleanup'] = False
         else:
             self.config['use_salt'] = True
-            self.config['cleanup'] = True
+            self.config['cleanup'] = False
 
 if __name__ == '__main__':
     d = datasets.ms_coco('val', '2014')

@@ -227,9 +227,9 @@ def test_net(net, imdb):
     num_images = len(imdb.image_index)
     # heuristic: keep an average of 40 detections per class per images prior
     # to NMS
-    max_per_set = 40 * num_images
+    max_per_set = 10*num_images #40 * num_images
     # heuristic: keep at most 100 detection per class per image prior to NMS
-    max_per_image = 100
+    max_per_image = 20#100
     # detection thresold for each class (this is adaptively set based on the
     # max_per_set constraint)
     thresh = -np.inf * np.ones(imdb.num_classes)
